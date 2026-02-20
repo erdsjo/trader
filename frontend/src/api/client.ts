@@ -1,8 +1,34 @@
 import axios from "axios";
 
+const TOKEN_KEY = "auth_token";
+
+export const getToken = (): string | null => localStorage.getItem(TOKEN_KEY);
+export const setToken = (token: string): void =>
+  localStorage.setItem(TOKEN_KEY, token);
+export const clearToken = (): void => localStorage.removeItem(TOKEN_KEY);
+
 const api = axios.create({
   baseURL: "/api",
 });
+
+api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      clearToken();
+      window.location.reload();
+    }
+    return Promise.reject(error);
+  }
+);
 
 export interface Simulation {
   id: number;
@@ -70,3 +96,10 @@ export const getTrades = (id: number) =>
   api.get<Trade[]>(`/simulations/${id}/trades`);
 export const getPerformance = (id: number) =>
   api.get<Performance>(`/simulations/${id}/performance`);
+
+export const login = async (password: string): Promise<string> => {
+  const { data } = await api.post<{ token: string }>("/auth/login", {
+    password,
+  });
+  return data.token;
+};

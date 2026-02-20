@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     model_storage_path: str = "./model_artifacts"
     default_slippage: float = 0.001
     min_confidence_threshold: float = 0.6
+    auth_password: str = ""
+    auth_token_expire_minutes: int = 1440
 
     class Config:
         env_file = ".env"
