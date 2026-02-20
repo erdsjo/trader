@@ -163,29 +163,38 @@ async def _train_and_run(
 ):
     """Load/fetch training data, train the model, then start the tick loop."""
     try:
-        event_log.info("Preparing training data...")
-        all_data = []
-        for symbol in symbols:
-            df = await _get_training_data(symbol, interval, data_source, event_log)
-            if not df.empty:
-                all_data.append(df)
+        # --- Phase 1: Training ---
+        try:
+            event_log.info("Preparing training data...")
+            all_data = []
+            for symbol in symbols:
+                df = await _get_training_data(symbol, interval, data_source, event_log)
+                if not df.empty:
+                    all_data.append(df)
 
-        if all_data:
-            combined = pd.concat(all_data, ignore_index=True)
-            event_log.info(f"Training model on {len(combined)} rows...")
-            metrics = await strategy.train(combined)
-            event_log.info(
-                f"Model trained — accuracy: {metrics.accuracy:.2%}, "
-                f"precision: {metrics.precision:.2%}, recall: {metrics.recall:.2%}"
-            )
-        else:
-            event_log.warning("No training data available — running in degraded mode")
+            if all_data:
+                combined = pd.concat(all_data, ignore_index=True)
+                event_log.info(f"Training model on {len(combined)} rows...")
+                metrics = await strategy.train(combined)
+                event_log.info(
+                    f"Model trained — accuracy: {metrics.accuracy:.2%}, "
+                    f"precision: {metrics.precision:.2%}, recall: {metrics.recall:.2%}"
+                )
+            else:
+                event_log.warning("No training data available — running in degraded mode")
+        except Exception as e:
+            event_log.error(f"Training failed: {e} — running in degraded mode")
+            logger.exception("Model training failed")
+
+        # --- Phase 2: Tick loop ---
+        event_log.info(
+            f"Starting tick loop: every {tick_seconds}s, "
+            f"fetching latest {interval} data and evaluating trades"
+        )
+        await engine.run(tick_seconds=tick_seconds)
     except Exception as e:
-        event_log.error(f"Training failed: {e} — running in degraded mode")
-        logger.exception("Model training failed")
-
-    # Start the tick loop (runs until stopped)
-    await engine.run(tick_seconds=tick_seconds)
+        event_log.error(f"Engine crashed: {e}")
+        logger.exception("Engine background task crashed")
 
 
 @router.post("", response_model=SimulationResponse)
