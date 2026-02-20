@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime, timedelta
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,7 @@ from app.api.deps import async_session, get_db
 from app.core.event_log import EventLog
 from app.models.db import (
     PortfolioSnapshot,
+    PriceData,
     Simulation,
     SimulationStatus,
     Trade,
@@ -24,6 +26,117 @@ router = APIRouter(prefix="/simulations", tags=["simulations"])
 _engines: dict[int, dict] = {}
 
 
+async def _load_cached_data(
+    symbol: str, interval: str, start: datetime, end: datetime,
+) -> pd.DataFrame:
+    """Load price data from the DB cache."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(PriceData)
+            .where(
+                PriceData.symbol == symbol,
+                PriceData.interval == interval,
+                PriceData.timestamp >= start,
+                PriceData.timestamp <= end,
+            )
+            .order_by(PriceData.timestamp)
+        )
+        rows = result.scalars().all()
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(
+        [
+            {
+                "open": r.open,
+                "high": r.high,
+                "low": r.low,
+                "close": r.close,
+                "volume": r.volume,
+                "timestamp": r.timestamp,
+            }
+            for r in rows
+        ]
+    )
+
+
+async def _store_price_data(
+    df: pd.DataFrame, symbol: str, interval: str, source: str,
+) -> int:
+    """Store price rows in DB, skipping duplicates. Returns count of new rows."""
+    if df.empty:
+        return 0
+    stored = 0
+    async with async_session() as session:
+        for _, row in df.iterrows():
+            ts = row["timestamp"].to_pydatetime() if hasattr(row["timestamp"], "to_pydatetime") else row["timestamp"]
+            # Use merge-style upsert: try insert, skip on conflict
+            existing = await session.execute(
+                select(PriceData.id).where(
+                    PriceData.symbol == symbol,
+                    PriceData.timestamp == ts,
+                    PriceData.interval == interval,
+                )
+            )
+            if existing.scalar() is not None:
+                continue
+            session.add(
+                PriceData(
+                    symbol=symbol,
+                    timestamp=ts,
+                    open=float(row["open"]),
+                    high=float(row["high"]),
+                    low=float(row["low"]),
+                    close=float(row["close"]),
+                    volume=float(row["volume"]),
+                    interval=interval,
+                    source=source,
+                )
+            )
+            stored += 1
+        await session.commit()
+    return stored
+
+
+async def _get_training_data(
+    symbol: str,
+    interval: str,
+    data_source,
+    event_log: EventLog,
+) -> pd.DataFrame:
+    """Get training data for a symbol: use DB cache, backfill from Yahoo if needed."""
+    end = datetime.now()
+    start = end - timedelta(days=365)
+
+    cached = await _load_cached_data(symbol, interval, start, end)
+    if len(cached) >= 50:
+        event_log.info(f"{symbol}: loaded {len(cached)} cached rows from DB")
+        return cached
+
+    # Not enough cached data — fetch from Yahoo
+    if not cached.empty:
+        event_log.info(
+            f"{symbol}: only {len(cached)} cached rows, fetching more from Yahoo"
+        )
+    else:
+        event_log.info(f"{symbol}: no cached data, fetching from Yahoo")
+
+    fresh = await data_source.fetch_historical(symbol, start, end, interval)
+    if not fresh.empty:
+        stored = await _store_price_data(fresh, symbol, interval, "yahoo")
+        event_log.info(f"{symbol}: stored {stored} new rows in DB cache")
+        return fresh
+
+    # Yahoo failed but we have some cached data
+    if not cached.empty:
+        event_log.warning(
+            f"{symbol}: Yahoo unavailable, using {len(cached)} cached rows"
+        )
+        return cached
+
+    event_log.warning(f"{symbol}: no data available")
+    return pd.DataFrame()
+
+
 async def _train_and_run(
     engine,
     strategy,
@@ -33,23 +146,16 @@ async def _train_and_run(
     tick_seconds: float,
     event_log: EventLog,
 ):
-    """Fetch historical data, train the model, then start the tick loop."""
+    """Load/fetch training data, train the model, then start the tick loop."""
     try:
-        event_log.info("Fetching historical data for training...")
-        end = datetime.now()
-        start = end - timedelta(days=365)
+        event_log.info("Preparing training data...")
         all_data = []
         for symbol in symbols:
-            df = await data_source.fetch_historical(symbol, start, end, interval)
+            df = await _get_training_data(symbol, interval, data_source, event_log)
             if not df.empty:
                 all_data.append(df)
-                event_log.info(f"Fetched {len(df)} rows for {symbol}")
-            else:
-                event_log.warning(f"No historical data for {symbol}")
 
         if all_data:
-            import pandas as pd
-
             combined = pd.concat(all_data, ignore_index=True)
             event_log.info(f"Training model on {len(combined)} rows...")
             metrics = await strategy.train(combined)
