@@ -14,6 +14,8 @@ A self-learning stock trading bot with simulation mode, a React dashboard, and a
 - **Dashboard updates**: Polling (auto-refresh every 10s)
 - **Execution**: Simulation/paper trading first, pluggable broker interface for real trading later
 - **Storage**: PostgreSQL
+- **Infrastructure**: Hetzner CPX42 VPS (8 vCPU AMD EPYC, 16 GB RAM, 320 GB SSD, Ubuntu 24.04)
+- **Deployment**: Docker Compose (PostgreSQL + backend + frontend served via Nginx)
 
 ## Project Structure
 
@@ -210,3 +212,37 @@ Dashboard polls portfolio, trades, and performance endpoints every 10 seconds.
 - recharts or chart.js — charting
 - axios or fetch — API calls
 - tailwindcss — styling
+
+## Infrastructure — Hetzner CPX42
+
+### Server specs
+
+- 8 vCPU (AMD EPYC)
+- 16 GB RAM
+- 320 GB SSD
+- Ubuntu 24.04 LTS
+- Region: Nuremberg or Falkenstein (DE) for low latency to EU markets
+
+### Deployment (Docker Compose)
+
+```yaml
+services:
+  db:        # PostgreSQL 16
+  backend:   # FastAPI + Uvicorn
+  frontend:  # Nginx serving React build + reverse proxy to backend
+```
+
+### Resource budget on CPX42
+
+| Component | CPU | RAM |
+|-----------|-----|-----|
+| PostgreSQL | 1-2 cores | 4 GB |
+| FastAPI + trading engine | 2-3 cores | 3 GB |
+| XGBoost training (burst) | 4-6 cores | 4 GB |
+| Nginx + React static | negligible | 128 MB |
+| OS + overhead | 1 core | 1 GB |
+| **Headroom** | ~2 cores idle | ~4 GB free |
+
+### Phase 2 note
+
+For RL training, consider upgrading to CPX52 (16 vCPU, 32 GB RAM) or running training jobs on a separate dedicated GPU server while the bot continues trading on the CPX42.
