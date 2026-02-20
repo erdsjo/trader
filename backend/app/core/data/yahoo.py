@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import time
 from datetime import datetime, timedelta
 from functools import partial
 
@@ -6,6 +8,14 @@ import pandas as pd
 import yfinance as yf
 
 from app.core.data.base import DataSource
+
+logger = logging.getLogger(__name__)
+
+_MAX_RETRIES = 3
+_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
 
 
 class YahooDataSource(DataSource):
@@ -39,8 +49,35 @@ class YahooDataSource(DataSource):
     def _download(
         self, symbol: str, start: datetime, end: datetime, interval: str
     ) -> pd.DataFrame:
-        ticker = yf.Ticker(symbol)
-        return ticker.history(start=start, end=end, interval=interval)
+        import requests
+
+        session = requests.Session()
+        session.headers["User-Agent"] = _USER_AGENT
+        session.timeout = 10  # seconds – prevents indefinite hangs
+
+        last_err: Exception | None = None
+        for attempt in range(1, _MAX_RETRIES + 1):
+            try:
+                ticker = yf.Ticker(symbol, session=session)
+                df = ticker.history(start=start, end=end, interval=interval)
+                if not df.empty:
+                    return df
+                logger.warning(
+                    "Yahoo returned empty DataFrame for %s (attempt %d/%d)",
+                    symbol, attempt, _MAX_RETRIES,
+                )
+            except Exception as e:
+                last_err = e
+                logger.warning(
+                    "Yahoo download failed for %s (attempt %d/%d): %s",
+                    symbol, attempt, _MAX_RETRIES, e,
+                )
+            if attempt < _MAX_RETRIES:
+                time.sleep(2 ** attempt)
+
+        if last_err:
+            logger.error("All %d attempts failed for %s: %s", _MAX_RETRIES, symbol, last_err)
+        return pd.DataFrame()
 
     def _normalize(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Simulation } from "../api/client";
+import { EngineActivity } from "./EngineActivity";
 import { Portfolio } from "./Portfolio";
 import { ProfitLoss } from "./ProfitLoss";
 import { SimulationControl } from "./SimulationControl";
@@ -14,6 +15,8 @@ export function Dashboard() {
 
       <div className="space-y-4">
         <SimulationControl selected={selected} onSelect={setSelected} />
+
+        <EngineActivity simulationId={selected?.id ?? null} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Portfolio simulationId={selected?.id ?? null} />

@@ -80,6 +80,17 @@ export interface Performance {
   total_pnl_pct: number;
 }
 
+export interface EngineEvent {
+  timestamp: string;
+  level: "info" | "warning" | "error";
+  message: string;
+}
+
+export interface SimulationLogs {
+  simulation_id: number;
+  events: EngineEvent[];
+}
+
 export const getSimulations = () => api.get<Simulation[]>("/simulations");
 export const createSimulation = (data: {
   name: string;
@@ -96,6 +107,8 @@ export const getTrades = (id: number) =>
   api.get<Trade[]>(`/simulations/${id}/trades`);
 export const getPerformance = (id: number) =>
   api.get<Performance>(`/simulations/${id}/performance`);
+export const getSimulationLogs = (id: number, limit: number = 50) =>
+  api.get<SimulationLogs>(`/simulations/${id}/logs`, { params: { limit } });
 
 export const login = async (password: string): Promise<string> => {
   const { data } = await api.post<{ token: string }>("/auth/login", {

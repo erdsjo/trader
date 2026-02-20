@@ -21,6 +21,7 @@ export function SimulationControl({ selected, onSelect }: Props) {
   const [interval, setInterval] = useState("1d");
   const [tickSeconds, setTickSeconds] = useState("60");
   const [error, setError] = useState("");
+  const [starting, setStarting] = useState(false);
 
   const { data: simulations } = usePolling(
     async () => (await getSimulations()).data,
@@ -50,10 +51,18 @@ export function SimulationControl({ selected, onSelect }: Props) {
   const handleStart = async () => {
     if (selected) {
       setError("");
+      setStarting(true);
       try {
         await startSimulation(selected.id);
-      } catch {
-        setError("Failed to start simulation");
+      } catch (err: unknown) {
+        const detail =
+          err && typeof err === "object" && "response" in err
+            ? (err as { response?: { data?: { detail?: string } } }).response
+                ?.data?.detail
+            : undefined;
+        setError(detail || "Failed to start simulation");
+      } finally {
+        setStarting(false);
       }
     }
   };
@@ -110,9 +119,10 @@ export function SimulationControl({ selected, onSelect }: Props) {
         {selected && selected.status !== "running" && (
           <button
             onClick={handleStart}
-            className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded self-end"
+            disabled={starting}
+            className="bg-green-600 hover:bg-green-700 disabled:opacity-50 px-4 py-2 rounded self-end"
           >
-            Start
+            {starting ? "Starting..." : "Start"}
           </button>
         )}
         {selected && selected.status === "running" && (
