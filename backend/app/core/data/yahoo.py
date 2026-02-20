@@ -12,10 +12,6 @@ from app.core.data.base import DataSource
 logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 3
-_USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-)
 
 
 class YahooDataSource(DataSource):
@@ -49,16 +45,10 @@ class YahooDataSource(DataSource):
     def _download(
         self, symbol: str, start: datetime, end: datetime, interval: str
     ) -> pd.DataFrame:
-        import requests
-
-        session = requests.Session()
-        session.headers["User-Agent"] = _USER_AGENT
-        session.timeout = 10  # seconds – prevents indefinite hangs
-
         last_err: Exception | None = None
         for attempt in range(1, _MAX_RETRIES + 1):
             try:
-                ticker = yf.Ticker(symbol, session=session)
+                ticker = yf.Ticker(symbol)
                 df = ticker.history(start=start, end=end, interval=interval)
                 if not df.empty:
                     return df
