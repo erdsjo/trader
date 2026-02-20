@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   createSimulation,
+  deleteSimulation,
   getSimulations,
   startSimulation,
   stopSimulation,
@@ -10,7 +11,7 @@ import { usePolling } from "../hooks/usePolling";
 
 interface Props {
   selected: Simulation | null;
-  onSelect: (sim: Simulation) => void;
+  onSelect: (sim: Simulation | null) => void;
 }
 
 export function SimulationControl({ selected, onSelect }: Props) {
@@ -78,6 +79,18 @@ export function SimulationControl({ selected, onSelect }: Props) {
     }
   };
 
+  const handleDelete = async () => {
+    if (selected && confirm(`Delete "${selected.name}"? This cannot be undone.`)) {
+      setError("");
+      try {
+        await deleteSimulation(selected.id);
+        onSelect(null);
+      } catch {
+        setError("Failed to delete simulation");
+      }
+    }
+  };
+
   return (
     <div className="bg-gray-800 p-4 rounded-lg">
       <div className="flex items-center gap-4 flex-wrap">
@@ -131,6 +144,15 @@ export function SimulationControl({ selected, onSelect }: Props) {
             className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded self-end"
           >
             Stop
+          </button>
+        )}
+
+        {selected && selected.status !== "running" && (
+          <button
+            onClick={handleDelete}
+            className="bg-gray-600 hover:bg-red-700 px-4 py-2 rounded self-end"
+          >
+            Delete
           </button>
         )}
 

@@ -101,6 +101,8 @@ export const startSimulation = (id: number) =>
   api.post(`/simulations/${id}/start`);
 export const stopSimulation = (id: number) =>
   api.post(`/simulations/${id}/stop`);
+export const deleteSimulation = (id: number) =>
+  api.delete(`/simulations/${id}`);
 export const getPortfolio = (id: number) =>
   api.get<Portfolio>(`/simulations/${id}/portfolio`);
 export const getTrades = (id: number) =>

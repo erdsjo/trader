@@ -315,6 +315,28 @@ async def stop_simulation(sim_id: int, db: AsyncSession = Depends(get_db)):
     return {"status": "stopped", "simulation_id": sim_id}
 
 
+@router.delete("/{sim_id}")
+async def delete_simulation(sim_id: int, db: AsyncSession = Depends(get_db)):
+    sim = await db.get(Simulation, sim_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+
+    # Stop engine if running
+    if sim_id in _engines:
+        _engines[sim_id]["engine"].stop()
+        del _engines[sim_id]
+
+    # Delete related records, then the simulation
+    from sqlalchemy import delete as sql_delete
+
+    await db.execute(sql_delete(PortfolioSnapshot).where(PortfolioSnapshot.simulation_id == sim_id))
+    await db.execute(sql_delete(Trade).where(Trade.simulation_id == sim_id))
+    await db.delete(sim)
+    await db.commit()
+
+    return {"status": "deleted", "simulation_id": sim_id}
+
+
 @router.get("/{sim_id}/logs")
 async def get_simulation_logs(
     sim_id: int,
