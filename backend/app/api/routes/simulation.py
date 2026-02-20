@@ -97,6 +97,13 @@ async def _store_price_data(
     return stored
 
 
+# Yahoo imposes max lookback per interval
+_INTERVAL_MAX_DAYS = {
+    "1m": 7, "2m": 60, "5m": 60, "15m": 60, "30m": 60,
+    "1h": 730, "1d": 365 * 10, "5d": 365 * 10, "1wk": 365 * 10, "1mo": 365 * 10,
+}
+
+
 async def _get_training_data(
     symbol: str,
     interval: str,
@@ -104,8 +111,9 @@ async def _get_training_data(
     event_log: EventLog,
 ) -> pd.DataFrame:
     """Get training data for a symbol: use DB cache, backfill from Yahoo if needed."""
+    max_days = _INTERVAL_MAX_DAYS.get(interval, 365)
     end = datetime.now()
-    start = end - timedelta(days=365)
+    start = end - timedelta(days=max_days)
 
     cached = await _load_cached_data(symbol, interval, start, end)
     if len(cached) >= 50:
@@ -120,11 +128,18 @@ async def _get_training_data(
     else:
         event_log.info(f"{symbol}: no cached data, fetching from Yahoo")
 
-    fresh = await data_source.fetch_historical(symbol, start, end, interval)
+    try:
+        fresh = await data_source.fetch_historical(symbol, start, end, interval)
+    except Exception as e:
+        event_log.error(f"{symbol}: Yahoo fetch error: {e}")
+        fresh = pd.DataFrame()
+
     if not fresh.empty:
         stored = await _store_price_data(fresh, symbol, interval, "yahoo")
-        event_log.info(f"{symbol}: stored {stored} new rows in DB cache")
+        event_log.info(f"{symbol}: fetched {len(fresh)} rows, stored {stored} new in DB cache")
         return fresh
+
+    event_log.warning(f"{symbol}: Yahoo returned no data (interval={interval}, lookback={max_days}d)")
 
     # Yahoo failed but we have some cached data
     if not cached.empty:
