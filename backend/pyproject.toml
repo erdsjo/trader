@@ -1,0 +1,9 @@
+[project]
+name = "trader"
+version = "0.1.0"
+description = "Self-learning stock trading bot"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
