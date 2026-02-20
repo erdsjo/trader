@@ -28,7 +28,7 @@ def upgrade() -> None:
         sa.Column("start_time", sa.DateTime(), nullable=True),
         sa.Column(
             "status",
-            sa.Enum("created", "running", "stopped", "completed", name="simulationstatus"),
+            sa.Enum("created", "running", "stopped", "completed", name="simulationstatus", native_enum=False),
             nullable=True,
         ),
         sa.Column("config", sa.JSON(), nullable=True),
@@ -60,7 +60,7 @@ def upgrade() -> None:
         sa.Column("symbol", sa.String(), nullable=False),
         sa.Column(
             "side",
-            sa.Enum("buy", "sell", name="tradeside"),
+            sa.Enum("buy", "sell", name="tradeside", native_enum=False),
             nullable=False,
         ),
         sa.Column("quantity", sa.Float(), nullable=False),
@@ -104,5 +104,3 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_price_data_symbol"), table_name="price_data")
     op.drop_table("price_data")
     op.drop_table("simulations")
-    sa.Enum("created", "running", "stopped", "completed", name="simulationstatus").drop(op.get_bind())
-    sa.Enum("buy", "sell", name="tradeside").drop(op.get_bind())
