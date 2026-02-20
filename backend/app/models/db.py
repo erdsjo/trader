@@ -39,7 +39,7 @@ class Simulation(Base):
     initial_capital = Column(Float, nullable=False)
     current_cash = Column(Float, nullable=False)
     start_time = Column(DateTime, default=datetime.utcnow)
-    status = Column(Enum(SimulationStatus), default=SimulationStatus.CREATED)
+    status = Column(Enum(SimulationStatus, native_enum=False), default=SimulationStatus.CREATED)
     config = Column(JSON, default=dict)
 
     trades = relationship("Trade", back_populates="simulation")
@@ -70,7 +70,7 @@ class Trade(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     simulation_id = Column(Integer, ForeignKey("simulations.id"), nullable=False)
     symbol = Column(String, nullable=False, index=True)
-    side = Column(Enum(TradeSide), nullable=False)
+    side = Column(Enum(TradeSide, native_enum=False), nullable=False)
     quantity = Column(Float, nullable=False)
     price = Column(Float, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
