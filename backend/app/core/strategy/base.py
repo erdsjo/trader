@@ -23,13 +23,13 @@ class ModelMetrics:
 
 class Strategy(ABC):
     @abstractmethod
-    async def analyze(self, symbol: str, data: pd.DataFrame) -> Signal:
+    async def analyze(self, symbol: str, data: pd.DataFrame, sector: str | None = None) -> Signal:
         """Analyze data and return a trading signal."""
 
     @abstractmethod
-    async def train(self, training_data: pd.DataFrame) -> ModelMetrics:
+    async def train(self, training_data: pd.DataFrame, sector: str | None = None) -> ModelMetrics:
         """Train/retrain the strategy model on historical data."""
 
     @abstractmethod
-    def is_trained(self) -> bool:
+    def is_trained(self, sector: str | None = None) -> bool:
         """Whether the strategy has a trained model ready."""
