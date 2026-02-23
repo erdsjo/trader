@@ -3,6 +3,7 @@ import type { Simulation } from "../api/client";
 import { EngineActivity } from "./EngineActivity";
 import { Portfolio } from "./Portfolio";
 import { ProfitLoss } from "./ProfitLoss";
+import { ScreenerResults } from "./ScreenerResults";
 import { SimulationControl } from "./SimulationControl";
 import { TradeHistory } from "./TradeHistory";
 
@@ -17,6 +18,8 @@ export function Dashboard() {
         <SimulationControl selected={selected} onSelect={setSelected} />
 
         <EngineActivity simulationId={selected?.id ?? null} />
+
+        <ScreenerResults simulationId={selected?.id ?? null} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Portfolio simulationId={selected?.id ?? null} />

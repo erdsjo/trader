@@ -23,6 +23,10 @@ export function SimulationControl({ selected, onSelect }: Props) {
   const [tickSeconds, setTickSeconds] = useState("60");
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
+  const [mode, setMode] = useState<'custom' | 'universe'>('universe');
+  const [minVolume, setMinVolume] = useState('1000000');
+  const [minVolatility, setMinVolatility] = useState('0.15');
+  const [topNPerSector, setTopNPerSector] = useState('5');
 
   const { data: simulations } = usePolling(
     async () => (await getSimulations()).data,
@@ -32,14 +36,30 @@ export function SimulationControl({ selected, onSelect }: Props) {
   const handleCreate = async () => {
     setError("");
     try {
+      const config = mode === 'universe'
+        ? {
+            universe: 'sp500',
+            interval,
+            tick_seconds: parseFloat(tickSeconds),
+            screening: {
+              min_volume: parseFloat(minVolume),
+              min_volatility: parseFloat(minVolatility),
+              top_n_per_sector: parseInt(topNPerSector),
+              rescreen_hour_utc: 6,
+            },
+            max_positions: 20,
+            position_size_pct: 5.0,
+          }
+        : {
+            symbols: symbols.split(",").map((s) => s.trim()),
+            interval,
+            tick_seconds: parseFloat(tickSeconds),
+          };
+
       const sim = await createSimulation({
         name,
         initial_capital: parseFloat(capital),
-        config: {
-          symbols: symbols.split(",").map((s) => s.trim()),
-          interval,
-          tick_seconds: parseFloat(tickSeconds),
-        },
+        config,
       });
       onSelect(sim.data);
       setShowCreate(false);
@@ -204,19 +224,95 @@ export function SimulationControl({ selected, onSelect }: Props) {
           </div>
 
           <div>
-            <label className="block text-sm text-gray-400 mb-1">
-              Symbols
-            </label>
-            <input
-              placeholder="e.g. AAPL, MSFT, GOOGL"
-              value={symbols}
-              onChange={(e) => setSymbols(e.target.value)}
-              className="bg-gray-700 px-3 py-2 rounded w-full text-white"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Comma-separated stock tickers to trade (Yahoo Finance)
-            </p>
+            <label className="block text-sm text-gray-400 mb-1">Mode</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setMode('universe')}
+                className={`px-3 py-2 rounded text-sm ${mode === 'universe' ? 'bg-blue-600' : 'bg-gray-700'}`}
+              >
+                S&P 500 Universe
+              </button>
+              <button
+                onClick={() => setMode('custom')}
+                className={`px-3 py-2 rounded text-sm ${mode === 'custom' ? 'bg-blue-600' : 'bg-gray-700'}`}
+              >
+                Custom Symbols
+              </button>
+            </div>
           </div>
+
+          {mode === 'custom' && (
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">
+                Symbols
+              </label>
+              <input
+                placeholder="e.g. AAPL, MSFT, GOOGL"
+                value={symbols}
+                onChange={(e) => setSymbols(e.target.value)}
+                className="bg-gray-700 px-3 py-2 rounded w-full text-white"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Comma-separated stock tickers to trade (Yahoo Finance)
+              </p>
+            </div>
+          )}
+
+          {mode === 'universe' && (
+            <>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">
+                  Min Volume
+                </label>
+                <input
+                  type="number"
+                  placeholder="1000000"
+                  value={minVolume}
+                  onChange={(e) => setMinVolume(e.target.value)}
+                  className="bg-gray-700 px-3 py-2 rounded w-full text-white"
+                  min="0"
+                  step="100000"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Minimum average daily volume for stock screening
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">
+                  Min Volatility
+                </label>
+                <input
+                  type="number"
+                  placeholder="0.15"
+                  value={minVolatility}
+                  onChange={(e) => setMinVolatility(e.target.value)}
+                  className="bg-gray-700 px-3 py-2 rounded w-full text-white"
+                  min="0"
+                  step="0.01"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Minimum annualized volatility (e.g. 0.15 = 15%)
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">
+                  Top N Per Sector
+                </label>
+                <input
+                  type="number"
+                  placeholder="5"
+                  value={topNPerSector}
+                  onChange={(e) => setTopNPerSector(e.target.value)}
+                  className="bg-gray-700 px-3 py-2 rounded w-full text-white"
+                  min="1"
+                  step="1"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Number of top stocks to select from each sector
+                </p>
+              </div>
+            </>
+          )}
 
           <div>
             <label className="block text-sm text-gray-400 mb-1">
@@ -260,7 +356,7 @@ export function SimulationControl({ selected, onSelect }: Props) {
           <div className="flex items-end">
             <button
               onClick={handleCreate}
-              disabled={!name || !capital || !symbols}
+              disabled={!name || !capital || (mode === 'custom' && !symbols)}
               className="bg-green-600 hover:bg-green-700 disabled:opacity-50 px-6 py-2 rounded w-full font-medium"
             >
               Create Simulation

@@ -66,6 +66,24 @@ export function ProfitLoss({ simulationId }: Props) {
           />
         </LineChart>
       </ResponsiveContainer>
+
+      {performance.sector_pnl && Object.keys(performance.sector_pnl).length > 0 && (
+        <div className="mt-4 border-t border-gray-700 pt-3">
+          <h3 className="text-sm font-medium text-gray-400 mb-2">P/L by Sector</h3>
+          <div className="space-y-1">
+            {Object.entries(performance.sector_pnl)
+              .sort(([, a], [, b]) => b - a)
+              .map(([sector, pnl]) => (
+                <div key={sector} className="flex justify-between text-sm">
+                  <span className="text-gray-300">{sector}</span>
+                  <span className={pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
+                    ${pnl.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

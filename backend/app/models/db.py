@@ -2,6 +2,7 @@ import enum
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     JSON,
     Column,
     DateTime,
@@ -62,6 +63,7 @@ class PriceData(Base):
     volume = Column(Float, nullable=False)
     interval = Column(String, nullable=False)
     source = Column(String, nullable=False)
+    fetched_at = Column(DateTime, default=datetime.utcnow, nullable=True)
 
 
 class Trade(Base):
@@ -100,3 +102,39 @@ class MLModel(Base):
     metrics = Column(JSON, default=dict)
     trained_at = Column(DateTime, default=datetime.utcnow)
     file_path = Column(String, nullable=False)
+
+
+class StockUniverse(Base):
+    __tablename__ = "stock_universe"
+
+    symbol = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    sector = Column(String, nullable=False, index=True)
+    market_cap = Column(Float, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SectorModel(Base):
+    __tablename__ = "sector_models"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    simulation_id = Column(Integer, ForeignKey("simulations.id"), nullable=False)
+    sector = Column(String, nullable=False, index=True)
+    version = Column(Integer, default=1)
+    metrics = Column(JSON, nullable=True)
+    trained_at = Column(DateTime, default=datetime.utcnow)
+    file_path = Column(String, nullable=False)
+
+
+class ScreeningResult(Base):
+    __tablename__ = "screening_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    simulation_id = Column(Integer, ForeignKey("simulations.id"), nullable=False, index=True)
+    symbol = Column(String, nullable=False)
+    sector = Column(String, nullable=False)
+    volume_avg = Column(Float, nullable=False)
+    volatility = Column(Float, nullable=False)
+    opportunity_score = Column(Float, nullable=True)
+    selected = Column(Boolean, default=False)
+    screened_at = Column(DateTime, default=datetime.utcnow)

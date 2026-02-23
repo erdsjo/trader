@@ -33,6 +33,60 @@ class YahooDataSource(DataSource):
         )
         return self._normalize(df)
 
+    async def fetch_historical_batch(
+        self,
+        symbols: list[str],
+        start: datetime,
+        end: datetime,
+        interval: str = "1d",
+        batch_size: int = 50,
+    ) -> dict[str, pd.DataFrame]:
+        results: dict[str, pd.DataFrame] = {}
+        for i in range(0, len(symbols), batch_size):
+            batch = symbols[i : i + batch_size]
+            try:
+                batch_result = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda b=batch: yf.download(
+                            " ".join(b),
+                            start=start,
+                            end=end,
+                            interval=interval,
+                            group_by="ticker",
+                            threads=True,
+                        ),
+                    ),
+                    timeout=120,
+                )
+                if len(batch) == 1:
+                    symbol = batch[0]
+                    df = self._normalize(batch_result)
+                    if not df.empty:
+                        results[symbol] = df
+                else:
+                    for symbol in batch:
+                        try:
+                            if symbol in batch_result.columns.get_level_values(0):
+                                df = batch_result[symbol].dropna(how="all")
+                                df = self._normalize(df)
+                                if not df.empty:
+                                    results[symbol] = df
+                        except Exception:
+                            pass
+            except Exception:
+                # Fallback: fetch individually
+                for symbol in batch:
+                    try:
+                        df = await self.fetch_historical(symbol, start, end, interval)
+                        if not df.empty:
+                            results[symbol] = df
+                    except Exception:
+                        pass
+            if i + batch_size < len(symbols):
+                await asyncio.sleep(2)  # Rate limit between batches
+        return results
+
     async def fetch_latest(self, symbol: str, interval: str) -> pd.DataFrame:
         end = datetime.now()
         if interval in ("1m", "2m", "5m", "15m", "30m"):

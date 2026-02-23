@@ -2,7 +2,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.deps import require_auth
-from app.api.routes import auth, portfolio, simulation, strategy, trades
+from app.api.routes import auth, portfolio, simulation, strategy, trades, universe
 from app.config import settings
 
 app = FastAPI(title="Trader Bot API", version="0.1.0")
@@ -27,6 +27,9 @@ app.include_router(
 )
 app.include_router(
     strategy.router, prefix=settings.api_prefix, dependencies=[Depends(require_auth)]
+)
+app.include_router(
+    universe.router, prefix=settings.api_prefix, dependencies=[Depends(require_auth)]
 )
 
 

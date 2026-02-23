@@ -78,6 +78,7 @@ export interface Performance {
   daily_pnl: number;
   total_pnl: number;
   total_pnl_pct: number;
+  sector_pnl?: Record<string, number>;
 }
 
 export interface EngineEvent {
@@ -111,6 +112,22 @@ export const getPerformance = (id: number) =>
   api.get<Performance>(`/simulations/${id}/performance`);
 export const getSimulationLogs = (id: number, limit: number = 50) =>
   api.get<SimulationLogs>(`/simulations/${id}/logs`, { params: { limit } });
+
+export interface ScreeningResultItem {
+  symbol: string;
+  sector: string;
+  volume_avg: number;
+  volatility: number;
+  opportunity_score: number | null;
+  selected: boolean;
+  screened_at: string;
+}
+
+export const getScreeningResults = (simId: number) =>
+  api.get<ScreeningResultItem[]>(`/simulations/${simId}/screening`).then(r => r.data);
+
+export const getUniverse = () =>
+  api.get<{ symbol: string; name: string; sector: string }[]>('/universe').then(r => r.data);
 
 export const login = async (password: string): Promise<string> => {
   const { data } = await api.post<{ token: string }>("/auth/login", {
