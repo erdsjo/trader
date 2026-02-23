@@ -8,9 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import async_session, get_db
 from app.core.event_log import EventLog
+from app.core.data.universe import StockUniverseLoader
+from app.core.screener import StockScreener
 from app.models.db import (
     PortfolioSnapshot,
     PriceData,
+    ScreeningResult,
+    SectorModel,
     Simulation,
     SimulationStatus,
     Trade,
@@ -152,36 +156,150 @@ async def _get_training_data(
     return pd.DataFrame()
 
 
+async def _run_screening(
+    config: dict,
+    data_source,
+    event_log: EventLog,
+    simulation_id: int,
+) -> tuple[dict[str, str], dict[str, pd.DataFrame]]:
+    """Run stock screening: load universe, fetch data, filter, select top-N.
+
+    Returns:
+        (active_symbols_map {symbol: sector}, candidate_price_data {symbol: DataFrame})
+    """
+    screening_cfg = config.get("screening", {})
+    min_volume = screening_cfg.get("min_volume", 1_000_000)
+    min_volatility = screening_cfg.get("min_volatility", 0.15)
+    top_n = screening_cfg.get("top_n_per_sector", 5)
+
+    loader = StockUniverseLoader()
+    records = loader.load_from_csv()
+    universe_map = {r["symbol"]: r["sector"] for r in records}
+    all_symbols = list(universe_map.keys())
+
+    event_log.info(f"Screening {len(all_symbols)} stocks from S&P 500")
+
+    interval = config.get("interval", "1d")
+    end = datetime.now()
+    max_days = _INTERVAL_MAX_DAYS.get(interval, 60)
+    lookback = min(60, max_days)
+    start = end - timedelta(days=lookback)
+
+    event_log.info(f"Fetching {lookback} days of data for {len(all_symbols)} stocks...")
+    price_data = await data_source.fetch_historical_batch(all_symbols, start, end, interval)
+    event_log.info(f"Fetched data for {len(price_data)}/{len(all_symbols)} stocks")
+
+    # Store fetched data in cache
+    for symbol, df in price_data.items():
+        await _store_price_data(df, symbol, interval, "yahoo")
+
+    screener = StockScreener(
+        min_volume=min_volume,
+        min_volatility=min_volatility,
+        top_n_per_sector=top_n,
+    )
+    candidates = screener.filter_candidates(price_data, universe_map)
+    event_log.info(f"Screening: {len(candidates)} candidates passed filters")
+
+    selected = screener.select_top_n(candidates)
+
+    # Save screening results to DB
+    async with async_session() as session:
+        for symbol, info in selected.items():
+            result = ScreeningResult(
+                simulation_id=simulation_id,
+                symbol=symbol,
+                sector=info["sector"],
+                volume_avg=info["volume_avg"],
+                volatility=info["volatility"],
+                opportunity_score=info.get("opportunity_score"),
+                selected=info["selected"],
+            )
+            session.add(result)
+        await session.commit()
+
+    active_symbols = {s: info["sector"] for s, info in selected.items() if info["selected"]}
+    event_log.info(f"Selected {len(active_symbols)} stocks for trading")
+
+    candidate_data = {s: price_data[s] for s in candidates if s in price_data}
+    return active_symbols, candidate_data
+
+
 async def _train_and_run(
     engine,
     strategy,
     data_source,
-    symbols: list[str],
-    interval: str,
-    tick_seconds: float,
+    config: dict,
+    sim_id: int,
     event_log: EventLog,
 ):
     """Load/fetch training data, train the model, then start the tick loop."""
     try:
+        interval = config.get("interval", "1d")
+        tick_seconds = config.get("tick_seconds", 60.0)
+
         # --- Phase 1: Training ---
         try:
-            event_log.info("Preparing training data...")
-            all_data = []
-            for symbol in symbols:
-                df = await _get_training_data(symbol, interval, data_source, event_log)
-                if not df.empty:
-                    all_data.append(df)
-
-            if all_data:
-                combined = pd.concat(all_data, ignore_index=True)
-                event_log.info(f"Training model on {len(combined)} rows...")
-                metrics = await strategy.train(combined)
-                event_log.info(
-                    f"Model trained — accuracy: {metrics.accuracy:.2%}, "
-                    f"precision: {metrics.precision:.2%}, recall: {metrics.recall:.2%}"
+            if "universe" in config:
+                # === SCREENER MODE ===
+                active_symbols, candidate_data = await _run_screening(
+                    config, data_source, event_log, sim_id
                 )
+
+                # Train sector models
+                loader = StockUniverseLoader()
+                universe_map = {r["symbol"]: r["sector"] for r in loader.load_from_csv()}
+
+                sectors_to_train = set(active_symbols.values())
+                for sector in sectors_to_train:
+                    sector_symbols = [
+                        s for s, sec in universe_map.items()
+                        if sec == sector and s in candidate_data
+                    ]
+                    if len(sector_symbols) < 5:
+                        event_log.warning(
+                            f"Sector '{sector}': only {len(sector_symbols)} stocks, skipping"
+                        )
+                        continue
+
+                    frames = []
+                    for s in sector_symbols:
+                        df = candidate_data[s].copy()
+                        df["symbol"] = s
+                        frames.append(df)
+                    sector_data = pd.concat(frames, ignore_index=True)
+                    sector_data.sort_values("timestamp", inplace=True)
+
+                    event_log.info(
+                        f"Training model for sector: {sector} ({len(sector_symbols)} stocks)"
+                    )
+                    metrics = await strategy.train(sector_data, sector=sector)
+                    event_log.info(
+                        f"Sector '{sector}' trained: accuracy={metrics.accuracy:.2%}"
+                    )
+
+                engine.symbols = list(active_symbols.keys())
+                engine._sector_map = active_symbols
             else:
-                event_log.warning("No training data available — running in degraded mode")
+                # === LEGACY MODE (fixed symbols) ===
+                event_log.info("Preparing training data...")
+                symbols = config.get("symbols", [])
+                all_data = []
+                for symbol in symbols:
+                    df = await _get_training_data(symbol, interval, data_source, event_log)
+                    if not df.empty:
+                        all_data.append(df)
+
+                if all_data:
+                    combined = pd.concat(all_data, ignore_index=True)
+                    event_log.info(f"Training model on {len(combined)} rows...")
+                    metrics = await strategy.train(combined)
+                    event_log.info(
+                        f"Model trained — accuracy: {metrics.accuracy:.2%}, "
+                        f"precision: {metrics.precision:.2%}, recall: {metrics.recall:.2%}"
+                    )
+                else:
+                    event_log.warning("No training data available — running in degraded mode")
         except Exception as e:
             event_log.error(f"Training failed: {e} — running in degraded mode")
             logger.exception("Model training failed")
@@ -242,9 +360,13 @@ async def start_simulation(sim_id: int, db: AsyncSession = Depends(get_db)):
     from app.core.engine import TradingEngine
     from app.core.strategy.ml_strategy import MLStrategy
 
-    symbols = sim.config.get("symbols", ["AAPL"])
+    # For screener mode, start with empty symbols (screener will populate them)
+    if "universe" in sim.config:
+        symbols = []
+    else:
+        symbols = sim.config.get("symbols", ["AAPL"])
+
     interval = sim.config.get("interval", "1d")
-    tick_seconds = sim.config.get("tick_seconds", 60.0)
 
     broker = SimulatorBroker(initial_cash=sim.current_cash)
     data_source = YahooDataSource()
@@ -304,7 +426,7 @@ async def start_simulation(sim_id: int, db: AsyncSession = Depends(get_db)):
     engine._running = True
     engine._task = asyncio.create_task(
         _train_and_run(
-            engine, strategy, data_source, symbols, interval, tick_seconds, event_log,
+            engine, strategy, data_source, sim.config, sim_id, event_log,
         )
     )
 
@@ -353,6 +475,8 @@ async def delete_simulation(sim_id: int, db: AsyncSession = Depends(get_db)):
     # Delete related records, then the simulation
     from sqlalchemy import delete as sql_delete
 
+    await db.execute(sql_delete(ScreeningResult).where(ScreeningResult.simulation_id == sim_id))
+    await db.execute(sql_delete(SectorModel).where(SectorModel.simulation_id == sim_id))
     await db.execute(sql_delete(PortfolioSnapshot).where(PortfolioSnapshot.simulation_id == sim_id))
     await db.execute(sql_delete(Trade).where(Trade.simulation_id == sim_id))
     await db.delete(sim)
@@ -373,3 +497,27 @@ async def get_simulation_logs(
         )
     event_log: EventLog = _engines[sim_id]["event_log"]
     return {"simulation_id": sim_id, "events": event_log.get_events(limit)}
+
+
+@router.get("/{sim_id}/screening")
+async def get_screening_results(sim_id: int):
+    async with async_session() as session:
+        result = await session.execute(
+            select(ScreeningResult)
+            .where(ScreeningResult.simulation_id == sim_id)
+            .order_by(ScreeningResult.screened_at.desc())
+            .limit(500)
+        )
+        rows = result.scalars().all()
+    return [
+        {
+            "symbol": r.symbol,
+            "sector": r.sector,
+            "volume_avg": r.volume_avg,
+            "volatility": r.volatility,
+            "opportunity_score": r.opportunity_score,
+            "selected": r.selected,
+            "screened_at": r.screened_at.isoformat() if r.screened_at else None,
+        }
+        for r in rows
+    ]

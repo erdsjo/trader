@@ -69,3 +69,23 @@ class StrategyStatusResponse(BaseModel):
     last_trained: datetime | None
     metrics: dict
     active_signals: list[SignalResponse]
+
+
+class ScreeningConfig(BaseModel):
+    min_volume: float = 1_000_000
+    min_volatility: float = 0.15
+    top_n_per_sector: int = 5
+    rescreen_hour_utc: int = 6
+
+
+class ScreeningResultResponse(BaseModel):
+    symbol: str
+    sector: str
+    volume_avg: float
+    volatility: float
+    opportunity_score: float | None
+    selected: bool
+    screened_at: datetime
+
+    class Config:
+        from_attributes = True
