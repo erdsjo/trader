@@ -23,6 +23,7 @@ class TradingEngine:
         on_trade: Callable[[Order], Awaitable[None]] | None = None,
         on_tick_complete: Callable[[], Awaitable[None]] | None = None,
         event_log: EventLog | None = None,
+        sector_map: dict[str, str] | None = None,
     ):
         self.data_source = data_source
         self.strategy = strategy
@@ -33,6 +34,7 @@ class TradingEngine:
         self.on_trade = on_trade
         self.on_tick_complete = on_tick_complete
         self.event_log = event_log
+        self._sector_map = sector_map or {}
         self.latest_prices: dict[str, float] = {}
         self._running = False
         self._task: asyncio.Task | None = None
@@ -64,7 +66,8 @@ class TradingEngine:
                 self.latest_prices[symbol] = current_price
 
                 enriched = compute_indicators(data)
-                signal = await self.strategy.analyze(symbol, enriched)
+                sector = self._sector_map.get(symbol)
+                signal = await self.strategy.analyze(symbol, enriched, sector=sector)
 
                 if signal.confidence < self.min_confidence:
                     self._log_info(

@@ -86,3 +86,24 @@ async def test_engine_tick_low_confidence_skips(engine, mock_strategy, broker):
     await engine.tick()
     positions = await broker.get_positions()
     assert len(positions) == 0
+
+
+@pytest.mark.asyncio
+async def test_engine_tick_with_sector_map(
+    mock_data_source, mock_strategy, broker
+):
+    engine = TradingEngine(
+        data_source=mock_data_source,
+        strategy=mock_strategy,
+        broker=broker,
+        symbols=["AAPL", "JNJ"],
+        sector_map={"AAPL": "Information Technology", "JNJ": "Health Care"},
+    )
+    mock_strategy.analyze.return_value = Signal("buy", 0.8, "AAPL", 10, "test")
+    await engine.tick()
+    # Verify analyze was called with sector keyword
+    calls = mock_strategy.analyze.call_args_list
+    assert len(calls) == 2
+    # Check sector kwarg was passed
+    for call in calls:
+        assert "sector" in call.kwargs
