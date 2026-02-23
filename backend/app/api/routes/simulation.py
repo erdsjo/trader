@@ -197,6 +197,7 @@ async def _run_screening(
         min_volume=min_volume,
         min_volatility=min_volatility,
         top_n_per_sector=top_n,
+        interval=interval,
     )
     candidates = screener.filter_candidates(price_data, universe_map)
     event_log.info(f"Screening: {len(candidates)} candidates passed filters")

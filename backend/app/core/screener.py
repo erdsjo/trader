@@ -9,28 +9,51 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+
+# Approximate number of bars per trading day for each interval.
+# Used to convert intraday bar-level metrics to daily equivalents.
+_BARS_PER_DAY: dict[str, int] = {
+    "1m": 390,   # 6.5 hours * 60
+    "2m": 195,
+    "5m": 78,    # 6.5 hours * 12
+    "15m": 26,
+    "30m": 13,
+    "1h": 7,     # ~6.5 rounded
+    "1d": 1,
+    "5d": 1,
+    "1wk": 1,
+    "1mo": 1,
+}
+
+
 class StockScreener:
     def __init__(
         self,
         min_volume: float = 1_000_000,
         min_volatility: float = 0.15,
         top_n_per_sector: int = 5,
+        interval: str = "1d",
     ):
         self.min_volume = min_volume
         self.min_volatility = min_volatility
         self.top_n_per_sector = top_n_per_sector
+        self.bars_per_day = _BARS_PER_DAY.get(interval, 1)
 
-    def _compute_avg_volume(self, df: pd.DataFrame, lookback: int = 20) -> float:
-        recent = df.tail(lookback)
-        return float(recent["volume"].mean())
+    def _compute_avg_daily_volume(self, df: pd.DataFrame, lookback: int = 20) -> float:
+        """Compute average *daily* volume, aggregating intraday bars if needed."""
+        recent = df.tail(lookback * self.bars_per_day)
+        avg_bar_volume = float(recent["volume"].mean())
+        return avg_bar_volume * self.bars_per_day
 
     def _compute_volatility(self, df: pd.DataFrame, lookback: int = 20) -> float:
-        recent = df.tail(lookback)
+        """Compute annualized volatility from bar returns, adjusted for bar frequency."""
+        recent = df.tail(lookback * self.bars_per_day)
         returns = recent["close"].pct_change().dropna()
         if len(returns) < 2:
             return 0.0
-        daily_std = float(returns.std())
-        annualized = daily_std * math.sqrt(252)
+        bar_std = float(returns.std())
+        # Annualize: bars_per_day bars/day * 252 trading days/year
+        annualized = bar_std * math.sqrt(self.bars_per_day * 252)
         return annualized
 
     def filter_candidates(
@@ -45,7 +68,7 @@ class StockScreener:
             if len(df) < 5:
                 continue
 
-            vol_avg = self._compute_avg_volume(df)
+            vol_avg = self._compute_avg_daily_volume(df)
             volatility = self._compute_volatility(df)
 
             if vol_avg < self.min_volume:

@@ -22,7 +22,7 @@ def _make_price_data(symbol: str, days: int = 30) -> pd.DataFrame:
 def test_compute_volume_avg():
     df = _make_price_data("AAPL")
     screener = StockScreener(min_volume=1_000_000, min_volatility=0.0)
-    vol_avg = screener._compute_avg_volume(df, lookback=20)
+    vol_avg = screener._compute_avg_daily_volume(df, lookback=20)
     assert isinstance(vol_avg, float)
     assert vol_avg > 0
 

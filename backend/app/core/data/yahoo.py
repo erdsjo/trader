@@ -25,12 +25,20 @@ class YahooDataSource(DataSource):
         return self.INTERVALS
 
     async def fetch_historical(
-        self, symbol: str, start: datetime, end: datetime, interval: str
+        self, symbol: str, start: datetime, end: datetime, interval: str,
+        timeout: float = 30.0,
     ) -> pd.DataFrame:
         loop = asyncio.get_running_loop()
-        df = await loop.run_in_executor(
-            None, partial(self._download, symbol, start, end, interval)
-        )
+        try:
+            df = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None, partial(self._download, symbol, start, end, interval)
+                ),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Yahoo fetch timed out for %s after %.0fs", symbol, timeout)
+            return self._normalize(pd.DataFrame())
         return self._normalize(df)
 
     async def fetch_historical_batch(
@@ -94,7 +102,8 @@ class YahooDataSource(DataSource):
         else:
             start = end - timedelta(days=5)
 
-        return await self.fetch_historical(symbol, start, end, interval)
+        # Shorter timeout for per-tick calls (we retry next tick anyway)
+        return await self.fetch_historical(symbol, start, end, interval, timeout=15.0)
 
     def _download(
         self, symbol: str, start: datetime, end: datetime, interval: str

@@ -109,8 +109,12 @@ class TradingEngine:
     async def run(self, tick_seconds: float = 60.0):
         self._running = True
         self._log_info(f"Engine started: symbols={self.symbols}, interval={self.interval}")
+        tick_count = 0
         while self._running:
+            tick_count += 1
+            self._log_info(f"Tick #{tick_count} — fetching data for {', '.join(self.symbols)}")
             await self.tick()
+            self._log_info(f"Tick #{tick_count} complete — sleeping {tick_seconds}s")
             await asyncio.sleep(tick_seconds)
 
     def start(self, tick_seconds: float = 60.0):
