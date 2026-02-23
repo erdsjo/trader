@@ -21,13 +21,11 @@ def test_load_csv_returns_records():
 
 def test_get_sectors_returns_eleven():
     loader = StockUniverseLoader(SP500_CSV)
-    records = loader.load_from_csv()
-    sectors = set(r["sector"] for r in records)
+    sectors = loader.get_sectors()
     assert len(sectors) == 11
 
 
 def test_get_symbols_by_sector():
     loader = StockUniverseLoader(SP500_CSV)
-    records = loader.load_from_csv()
-    tech = [r for r in records if r["sector"] == "Information Technology"]
+    tech = loader.get_symbols_by_sector("Information Technology")
     assert len(tech) > 30  # IT sector should have plenty

@@ -21,8 +21,6 @@ services:
       DATABASE_URL: postgresql+asyncpg://trader:${DB_PASSWORD:-trader}@db:5432/trader
       DATABASE_URL_SYNC: postgresql+psycopg2://trader:${DB_PASSWORD:-trader}@db:5432/trader
       AUTH_PASSWORD: ${AUTH_PASSWORD:?Set AUTH_PASSWORD in .env}
-    volumes:
-      - ./backend:/app
     ports:
       - "8000:8000"
     depends_on:
